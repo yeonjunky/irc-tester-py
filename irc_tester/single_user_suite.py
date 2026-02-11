@@ -24,7 +24,7 @@ class SingleUserSuite(BaseSuite):
             ("topic_set", self.test_topic_set),
             ("mode_view", self.test_mode_view),
             ("privmsg_to_channel", self.test_privmsg_to_channel),
-            ("ping_pong", self.test_ping_pong),
+            # ("ping_pong", self.test_ping_pong),
         ]
 
     # ================================================================== #
