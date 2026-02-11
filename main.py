@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IRC Server Tester – entry point.
+"""IRC Server Tester - entry point.
 
 Usage
 -----
