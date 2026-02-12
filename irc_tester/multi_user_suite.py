@@ -21,8 +21,11 @@ class MultiUserSuite(BaseSuite):
             ("operator_status", self.test_operator_status),
             ("kick", self.test_kick),
             ("kick_no_privilege", self.test_kick_no_privilege),
+            ("kick_one_to_n", self.test_kick_one_to_n),
+            ("kick_n_to_n", self.test_kick_n_to_n),
             ("invite", self.test_invite),
             ("mode_invite_only", self.test_mode_invite_only),
+            ("mode_part_and_join_inv_only_chan", self.test_part_and_join_inv_only_chan),
             ("mode_topic_restrict", self.test_mode_topic_restrict),
             ("mode_channel_key", self.test_mode_channel_key),
             ("mode_give_operator", self.test_mode_give_operator),
@@ -136,6 +139,7 @@ class MultiUserSuite(BaseSuite):
             echo = self.find_message(
                 msgs_op, command="PRIVMSG", params_contains=text)
 
+            time.sleep(0.2)
             # Also confirm the other user *did* get it
             msgs_b = user_b.collect(timeout=2)
             got_b = self.find_message(
@@ -267,6 +271,119 @@ class MultiUserSuite(BaseSuite):
 
     # ------------------------------------------------------------------ #
 
+    def test_kick_one_to_n(self):
+        op = self.setup_user()
+        regular1 = self.setup_user()
+        regular2 = self.setup_user()
+        regular3 = self.setup_user()
+
+        try:
+            channel = self.unique_channel()
+            self._join_channel(op, channel)
+            self._join_channel(regular1, channel)
+            self._join_channel(regular2, channel)
+            self._join_channel(regular3, channel)
+
+            time.sleep(0.2)
+
+            op.collect(0.5)
+            regular1.collect(0.5)
+            regular2.collect(0.5)
+            regular3.collect(0.5)
+
+            nicknames = regular1.nickname + "," + regular2.nickname + "," + regular3.nickname
+            op.kick(channel, nicknames, "test one to n kicking")
+
+            status = []
+            msgs = op.collect(1)
+
+            cnt = 0
+            for msg in msgs:
+                raw = msg.raw
+
+                if "KICK" in raw:
+                    cnt += 1
+
+                elif "482" in raw:
+                    return TestResult(
+                        "kick_one_to_n", False,
+                        "received error 482")
+            
+            if cnt == 3:
+                return TestResult(
+                    "kick_one_to_n", True, "Succeed to receive 3 kick responses"
+                )
+            
+            return TestResult(
+                "kick_one_to_n", False, "Failed to receive 3 kick responses"
+            )
+
+        finally:
+            op.disconnect()
+            regular1.disconnect()
+            regular2.disconnect()
+            regular3.disconnect()
+
+    # ------------------------------------------------------------------ #
+
+    def test_kick_n_to_n(self):
+        op = self.setup_user()
+        regular1 = self.setup_user()
+        regular2 = self.setup_user()
+        regular3 = self.setup_user()
+
+        client_list = [op, regular1, regular2, regular3]
+
+        try:
+            channel1 = self.unique_channel()
+            channel2 = self.unique_channel()
+            channel3 = self.unique_channel()
+
+            self._join_channel(op, channel1)
+            self._join_channel(op, channel2)
+            self._join_channel(op, channel3)
+
+            self._join_channel(regular1, channel1)
+            self._join_channel(regular2, channel2)
+            self._join_channel(regular3, channel3)
+
+            for c in client_list:
+                c.collect(0.5)
+
+            op.kick(channel1, regular1.nickname, "test n to n kicking")
+            op.kick(channel2, regular2.nickname, "test n to n kicking")
+            op.kick(channel3, regular3.nickname, "test n to n kicking")
+
+            msgs = op.collect(1)
+
+            cnt = 0
+            for msg in msgs:
+                raw = msg.raw
+                if "482" in raw:
+                    return TestResult(
+                        "kick_n_to_n", False,
+                        "No 482 error received (expected ERR_CHANOPRIVSNEEDED)")
+                
+                elif "KICK" in raw:
+                    cnt += 1
+
+            if cnt == 3:
+                return TestResult(
+                    "kick_n_to_n", True, "Succeed to receive 3 kick responses"
+                )
+            
+            return TestResult(
+                "kick_n_to_n", False, "failed to receive 3 kick response"
+            )
+
+        finally:
+            op.disconnect()
+            regular1.disconnect()
+            regular2.disconnect()
+            regular3.disconnect()
+
+    # ------------------------------------------------------------------ #
+
     def test_invite(self):
         """INVITE sends an invitation to the target user."""
         op = self.setup_user()
@@ -356,6 +473,56 @@ class MultiUserSuite(BaseSuite):
         finally:
             op.disconnect()
             outsider.disconnect()
+
+    # ------------------------------------------------------------------ #
+
+    def test_part_and_join_inv_only_chan(self):
+        op = self.setup_user()
+        regular = self.setup_user()
+
+        try:
+            channel = self.unique_channel()
+            op.join(channel)
+
+            op.mode(channel, "+i")
+            op.invite(regular, channel)
+
+            regular.join(channel)
+            _, status = regular.receive_until(["473", "366"])
+            if status == None:
+                return TestResult(
+                    "part_and_join_inv_only_chan", False,
+                    "expected 366, got 473."
+                )
+
+            regular.part(channel)
+            _, status = regular.receive_until(["403", "442"])
+            if status:
+                return TestResult(
+                    "part_and_join_inv_only_chan", False,
+                    "got 403 or 442"
+                )
+
+            regular.join(channel)
+            msgs, _ = regular.receive_until(["473", "366"])
+            inv_only_chan = self.find_message(msgs, "473")
+            end_of_names = self.find_message(msgs, "366")
+
+            if end_of_names:
+                return TestResult(
+                    "part_and_join_inv_only_chan", False,
+                    "expected 473 but got 366"
+                )
+
+            if inv_only_chan:
+                return TestResult(
+                    "part_and_join_inv_only_chan", True,
+                    "Succeed to get 473"
+                )
+
+        finally:
+            op.disconnect()
+            regular.disconnect()
 
     # ------------------------------------------------------------------ #
 
