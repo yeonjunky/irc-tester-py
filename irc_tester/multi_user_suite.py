@@ -25,7 +25,7 @@ class MultiUserSuite(BaseSuite):
             ("kick_n_to_n", self.test_kick_n_to_n),
             ("invite", self.test_invite),
             ("mode_invite_only", self.test_mode_invite_only),
-            ("mode_part_and_join_inv_only_chan", self.test_part_and_join_inv_only_chan),
+            ("part_and_join_inv_only_chan", self.test_part_and_join_inv_only_chan),
             ("mode_topic_restrict", self.test_mode_topic_restrict),
             ("mode_channel_key", self.test_mode_channel_key),
             ("mode_give_operator", self.test_mode_give_operator),
@@ -485,7 +485,8 @@ class MultiUserSuite(BaseSuite):
             op.join(channel)
 
             op.mode(channel, "+i")
-            op.invite(regular, channel)
+            op.invite(regular.nickname, channel)
+            time.sleep(0.2)
 
             regular.join(channel)
             _, status = regular.receive_until(["473", "366"])
@@ -503,6 +504,7 @@ class MultiUserSuite(BaseSuite):
                     "got 403 or 442"
                 )
 
+            regular.collect()
             regular.join(channel)
             msgs, _ = regular.receive_until(["473", "366"])
             inv_only_chan = self.find_message(msgs, "473")
