@@ -32,18 +32,24 @@ def main():
         "--password", default="test",
         help="Server password (default: test)",
     )
+    parser.add_argument(
+        "--case", default="all",
+        help="specify the case to test (default: all, format: case1*(','case2))"
+    )
     args = parser.parse_args()
 
     config = {
         "host": args.host,
         "port": args.port,
         "password": args.password,
+        "case": args.case,
     }
 
     bold = "\033[1m"
     reset = "\033[0m"
     green = "\033[92m"
     red = "\033[91m"
+    reset = "\033[0m"
 
     print(f"\n{bold}IRC Server Tester{reset}")
     print(f"Target: {config['host']}:{config['port']}")
@@ -51,15 +57,55 @@ def main():
 
     all_results = []
 
-    # ── Single-user tests ──────────────────────────────────────── #
-    print(f"\n{bold}[ Single User Tests ]{reset}")
-    suite_single = SingleUserSuite(config)
-    all_results.extend(suite_single.run_all())
+    if (config["case"] == "all"):
+        # ── Single-user tests ──────────────────────────────────────── #
+        print(f"\n{bold}[ Single User Tests ]{reset}")
+        suite_single = SingleUserSuite(config)
+        all_results.extend(suite_single.run_all())
 
-    # ── Multi-user tests ───────────────────────────────────────── #
-    print(f"\n{bold}[ Multi User Tests ]{reset}")
-    suite_multi = MultiUserSuite(config)
-    all_results.extend(suite_multi.run_all())
+        # ── Multi-user tests ───────────────────────────────────────── #
+        print(f"\n{bold}[ Multi User Tests ]{reset}")
+        suite_multi = MultiUserSuite(config)
+        all_results.extend(suite_multi.run_all())
+    
+    else:
+        cases = config["case"].split(",")
+
+        for c in cases:
+            suite_single = SingleUserSuite(config)
+            suite_multi = MultiUserSuite(config)
+
+            single_tests = suite_single.get_tests()
+            multi_tests = suite_multi.get_tests()
+
+            tested = False
+            for name, func in single_tests:
+                if name == c:
+                    result = func()
+                    all_results.append(result)
+                    if result.passed:
+                        sym = f"{green}✓{reset}"
+                    else:
+                        sym = f"{red}✗{reset}"
+                    detail = result.details if result.details else ""
+                    print(f"  {sym} {bold}{result.name}{reset}  {detail}")
+                    tested = True
+                    break
+
+            if tested:
+                continue
+
+            for name, func in multi_tests:
+                if name == c:
+                    result = func()
+                    all_results.append(result)
+                    if result.passed:
+                        sym = f"{green}✓{reset}"
+                    else:
+                        sym = f"{red}✗{reset}"
+                    detail = result.details if result.details else ""
+                    print(f"  {sym} {bold}{result.name}{reset}  {detail}")
+                    break
 
     # ── Summary ────────────────────────────────────────────────── #
     passed = sum(1 for r in all_results if r.passed)
