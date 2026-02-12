@@ -30,6 +30,12 @@ class MultiUserSuite(BaseSuite):
             ("mode_channel_key", self.test_mode_channel_key),
             ("mode_give_operator", self.test_mode_give_operator),
             ("mode_user_limit", self.test_mode_user_limit),
+            ("quit_notification", self.test_quit_notification),
+            ("nick_broadcast", self.test_nick_broadcast),
+            ("topic_broadcast", self.test_topic_broadcast),
+            ("mode_broadcast", self.test_mode_broadcast),
+            ("nick_broadcast_once_multi_channel", self.test_nick_broadcast_once_multi_channel),
+            ("stress_test", self.stress_test),
         ]
 
     # ================================================================== #
@@ -757,3 +763,165 @@ class MultiUserSuite(BaseSuite):
             op.disconnect()
             user_b.disconnect()
             user_c.disconnect()
+
+    # ------------------------------------------------------------------ #
+
+    def test_quit_notification(self):
+        """When a user QUITs, other channel members receive a QUIT message."""
+        user_a = self.setup_user()
+        user_b = self.setup_user()
+        try:
+            channel = self.unique_channel()
+            self._join_channel(user_a, channel)
+            self._join_channel(user_b, channel)
+            time.sleep(0.2)
+            user_b.collect(timeout=0.5)
+
+            user_a.quit("leaving now")
+            msgs, _ = user_b.receive_until("QUIT", timeout=5)
+
+            quit_msg = self.find_message(msgs, command="QUIT")
+            if quit_msg and user_a.nickname.lower() in quit_msg.prefix.lower():
+                return TestResult("quit_notification", True, f"Received QUIT from {user_a.nickname}")
+            return TestResult("quit_notification", False, "No QUIT notification received")
+        finally:
+            user_b.disconnect()
+
+    # ------------------------------------------------------------------ #
+
+    def test_nick_broadcast(self):
+        """When a user changes NICK, other channel members are notified."""
+        user_a = self.setup_user()
+        user_b = self.setup_user()
+        try:
+            old_nick = user_a.nickname
+            channel = self.unique_channel()
+            self._join_channel(user_a, channel)
+            self._join_channel(user_b, channel)
+            time.sleep(0.2)
+            user_b.collect(timeout=0.5)
+
+            new_nick = "new"
+            user_a.nick(new_nick)
+
+            msgs, _ = user_b.receive_until("NICK", timeout=5)
+            nick_msg = self.find_message(msgs, command="NICK")
+
+            if nick_msg and new_nick in nick_msg.params:
+                return TestResult("nick_broadcast", True, f"Notification: {old_nick} -> {user_a.nickname}")
+            return TestResult("nick_broadcast", False, "No NICK notification received")
+        finally:
+            user_a.disconnect()
+            user_b.disconnect()
+
+    # ------------------------------------------------------------------ #
+
+    def test_topic_broadcast(self):
+        """When TOPIC is changed, all channel members receive a TOPIC message."""
+        op = self.setup_user()
+        user_b = self.setup_user()
+        try:
+            channel = self.unique_channel()
+            self._join_channel(op, channel)
+            self._join_channel(user_b, channel)
+            time.sleep(0.2)
+            user_b.collect(timeout=0.5)
+
+            new_topic = "New amazing topic"
+            op.topic(channel, new_topic)
+
+            msgs, _ = user_b.receive_until("TOPIC", timeout=5)
+            topic_msg = self.find_message(msgs, command="TOPIC")
+
+            if topic_msg and new_topic in topic_msg.params:
+                return TestResult("topic_broadcast", True, "Topic change broadcasted")
+            return TestResult("topic_broadcast", False, "No TOPIC notification received")
+        finally:
+            op.disconnect()
+            user_b.disconnect()
+
+    # ------------------------------------------------------------------ #
+
+    def test_mode_broadcast(self):
+        """When a channel MODE is changed, members receive a MODE message."""
+        op = self.setup_user()
+        user_b = self.setup_user()
+        try:
+            channel = self.unique_channel()
+            self._join_channel(op, channel)
+            self._join_channel(user_b, channel)
+            time.sleep(0.2)
+            user_b.collect(timeout=0.5)
+
+            op.mode(channel, "+t")
+            msgs, _ = user_b.receive_until("MODE", timeout=5)
+
+            mode_msg = self.find_message(msgs, command="MODE", params_contains="+t")
+            if mode_msg:
+                return TestResult("mode_broadcast", True, "MODE +t broadcasted")
+            return TestResult("mode_broadcast", False, "No MODE notification received")
+        finally:
+            op.disconnect()
+            user_b.disconnect()
+
+    # ------------------------------------------------------------------ #
+
+    def test_nick_broadcast_once_multi_channel(self):
+        """When users share multiple channels, a NICK change should only be notified once."""
+        user_a = self.setup_user()
+        user_b = self.setup_user()
+        try:
+            chan1 = self.unique_channel()
+            chan2 = self.unique_channel()
+
+            # Join both users to both channels
+            self._join_channel(user_a, chan1)
+            self._join_channel(user_b, chan1)
+            self._join_channel(user_a, chan2)
+            self._join_channel(user_b, chan2)
+            
+            time.sleep(0.2)
+            user_b.collect(timeout=0.5) # Clear join messages
+
+            new_nick = "multi"
+            user_a.nick(new_nick)
+
+            # Wait for messages to arrive
+            time.sleep(0.5)
+            msgs = user_b.collect(timeout=1)
+            
+            # Count NICK messages containing the new nickname
+            nick_msgs = [m for m in msgs if m.command == "NICK" and new_nick in m.params]
+            count = len(nick_msgs)
+
+            if count == 1:
+                return TestResult("nick_broadcast_once_multi_channel", True, 
+                                  "Received NICK notification exactly once across multiple channels")
+            elif count > 1:
+                return TestResult("nick_broadcast_once_multi_channel", False, 
+                                  f"Redundant notifications: received {count} NICK messages")
+            else:
+                return TestResult("nick_broadcast_once_multi_channel", False, 
+                                  "No NICK notification received")
+        finally:
+            user_a.disconnect()
+            user_b.disconnect()
+
+    def stress_test(self):
+        clients = []
+
+        for i in range(50):
+            clients.append(self.setup_user())
+        try:
+            chan = self.unique_channel()
+
+            for c in clients:
+                c.join(chan)
+
+            for c in clients:
+                c.privmsg(chan, "hello world!")
+            
+            return TestResult("stress test", True, "done.")
+        finally:
+            for c in clients:
+                c.disconnect()
